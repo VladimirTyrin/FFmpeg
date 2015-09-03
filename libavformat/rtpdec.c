@@ -631,6 +631,8 @@ static int rtp_parse_packet_internal(RTPDemuxContext *s, AVPacket *pkt,
             len -= padding;
     }
 
+    av_log(st ? st->codec : NULL, AV_LOG_WARNING,
+           "NEXT EXPECTED SEQ: %x\n", seq);
     s->seq = seq;
     len   -= 12;
     buf   += 12;
@@ -796,10 +798,13 @@ static int rtp_parse_one_packet(RTPDemuxContext *s, AVPacket *pkt,
     } else {
         uint16_t seq = AV_RB16(buf + 2);
         int16_t diff = seq - s->seq;
+        av_log(s->st ? s->st->codec : NULL, AV_LOG_WARNING,
+               "RTP packet: (seq = %x, s->seq = %x)\n", seq, s->seq);
         if (diff < 0) {
             /* Packet older than the previously emitted one, drop */
             av_log(s->st ? s->st->codec : NULL, AV_LOG_WARNING,
-                   "RTP: dropping old packet received too late\n");
+                   "RTP: dropping old packet received too late (seq = %x, s->seq=%x)\n",
+                    seq, s->seq);
             return -1;
         } else if (diff <= 1) {
             /* Correct packet */
