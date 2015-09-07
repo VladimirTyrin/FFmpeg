@@ -1193,6 +1193,8 @@ static inline int get_avc_nalsize(H264Context *h, const uint8_t *buf,
 
     if (*buf_index >= buf_size - h->nal_length_size) {
         // the end of the buffer is reached, refill it.
+        printf("*buf_index (%d) >= buf_size (%d) - h->nal_length_size (%d)\n",
+               *buf_index, buf_size, h->nal_length_size);
         return AVERROR(EAGAIN);
     }
 
@@ -1201,8 +1203,10 @@ static inline int get_avc_nalsize(H264Context *h, const uint8_t *buf,
     if (nalsize <= 0 || nalsize > buf_size - *buf_index) {
         av_log(h->avctx, AV_LOG_ERROR,
                "AVC: nal size %d\n", nalsize);
+        printf("nalsize <= 0 || nalsize > buf_size - *buf_index\n");
         return AVERROR_INVALIDDATA;
     }
+    printf("nalsize: %d\n", nalsize);
     return nalsize;
 }
 

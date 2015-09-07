@@ -253,13 +253,17 @@ static inline int parse_nal_units(AVCodecParserContext *s,
 
         if (buf_index >= next_avc) {
             nalsize = get_avc_nalsize(h, buf, buf_size, &buf_index);
-            if (nalsize < 0)
+            if (nalsize < 0) {
+                printf("nalsize < 0: %d\n", nalsize);
                 break;
+            }
             next_avc = buf_index + nalsize;
         } else {
             buf_index = find_start_code(buf, buf_size, buf_index, next_avc);
-            if (buf_index >= buf_size)
+            if (buf_index >= buf_size) {
+                printf("buf_index >= buf_size: %d vs %d\n", buf_index, buf_size);
                 break;
+            }
             if (buf_index >= next_avc)
                 continue;
         }
@@ -284,8 +288,10 @@ static inline int parse_nal_units(AVCodecParserContext *s,
         }
         ptr = ff_h264_decode_nal(h, sl, buf + buf_index, &dst_length,
                                  &consumed, src_length);
-        if (!ptr || dst_length < 0)
+        if (!ptr || dst_length < 0) {
+            printf("!ptr || dst_length < 0: %d\n", dst_length);
             break;
+        }
 
         buf_index += consumed;
 
