@@ -201,6 +201,16 @@ static int scan_mmco_reset(AVCodecParserContext *s)
     return 0;
 }
 
+static void print_hex(const char *prefix, const uint8_t *ptr, int size)
+{
+    int i;
+    printf("%s: ", prefix);
+    for (i = 0; i < size; ++i) {
+        printf("%02x ", ptr[i]);
+    }
+    printf("\n");
+}
+
 /**
  * Parse NAL units of found picture and decode some basic information.
  *
@@ -481,12 +491,16 @@ static inline int parse_nal_units(AVCodecParserContext *s,
                 s->field_order = AV_FIELD_UNKNOWN;
             }
 
+            print_hex("GOOD BUFF", buf, buf_size);
             return 0; /* no need to evaluate the rest */
         }
     }
-    if (q264)
+    if (q264) {
+        print_hex("Q264 BUFF", buf, buf_size);
         return 0;
+    }
     /* didn't find a picture! */
+    print_hex("BAD BUFF", buf, buf_size);
     av_log(h->avctx, AV_LOG_ERROR, "missing picture in access unit with size %d\n", buf_size);
     return -1;
 }
