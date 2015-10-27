@@ -49,6 +49,18 @@ typedef struct CodecMime{
     enum AVCodecID id;
 } CodecMime;
 
+/*************************************************/
+/* fractional numbers for exact pts handling */
+
+/**
+ * The exact value of the fractional number is: 'val + num / den'.
+ * num is assumed to be 0 <= num < den.
+ */
+typedef struct FFFrac {
+    int64_t val, num, den;
+} FFFrac;
+
+
 struct AVFormatInternal {
     /**
      * Number of streams relevant for interleaving.
@@ -364,7 +376,7 @@ int ff_read_packet(AVFormatContext *s, AVPacket *pkt);
  * Interleave a packet per dts in an output media file.
  *
  * Packets with pkt->destruct == av_destruct_packet will be freed inside this
- * function, so they cannot be used after it. Note that calling av_free_packet()
+ * function, so they cannot be used after it. Note that calling av_packet_unref()
  * on them is still safe.
  *
  * @param s media file handle

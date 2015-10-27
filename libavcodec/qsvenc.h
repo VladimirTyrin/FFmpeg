@@ -50,7 +50,18 @@ typedef struct QSVEncContext {
     mfxFrameAllocRequest req;
 
     mfxExtCodingOption  extco;
-    mfxExtBuffer *extparam[1];
+#if QSV_VERSION_ATLEAST(1,6)
+    mfxExtCodingOption2 extco2;
+#endif
+
+    mfxExtOpaqueSurfaceAlloc opaque_alloc;
+    mfxFrameSurface1       **opaque_surfaces;
+    AVBufferRef             *opaque_alloc_buf;
+
+    mfxExtBuffer  *extparam_internal[3];
+    int         nb_extparam_internal;
+
+    mfxExtBuffer **extparam;
 
     AVFifoBuffer *async_fifo;
 
@@ -61,6 +72,10 @@ typedef struct QSVEncContext {
     int preset;
     int avbr_accuracy;
     int avbr_convergence;
+    int pic_timing_sei;
+    int look_ahead;
+    int look_ahead_depth;
+    int look_ahead_downsampling;
 
     char *load_plugins;
 } QSVEncContext;

@@ -612,9 +612,12 @@ static int h264_frame_start(H264Context *h)
 
     if ((ret = alloc_picture(h, pic)) < 0)
         return ret;
-    if(!h->frame_recovered && !h->avctx->hwaccel &&
-       !(h->avctx->codec->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU))
-        avpriv_color_frame(pic->f, c);
+    if(!h->frame_recovered && !h->avctx->hwaccel
+#if FF_API_CAP_VDPAU
+       && !(h->avctx->codec->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU)
+#endif
+       )
+        ff_color_frame(pic->f, c);
 
     h->cur_pic_ptr = pic;
     ff_h264_unref_picture(h, &h->cur_pic);
@@ -943,7 +946,7 @@ static enum AVPixelFormat get_pixel_format(H264Context *h, int force_callback)
             *fmt++ = AV_PIX_FMT_D3D11VA_VLD;
 #endif
 #if CONFIG_H264_VAAPI_HWACCEL
-            *fmt++ = AV_PIX_FMT_VAAPI_VLD;
+            *fmt++ = AV_PIX_FMT_VAAPI;
 #endif
 #if CONFIG_H264_VDA_HWACCEL
             *fmt++ = AV_PIX_FMT_VDA_VLD;
@@ -1048,6 +1051,7 @@ static int h264_slice_header_init(H264Context *h)
         goto fail;
     }
 
+#if FF_API_CAP_VDPAU
     if (h->avctx->codec &&
         h->avctx->codec->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU &&
         (h->sps.bit_depth_luma != 8 || h->sps.chroma_format_idc > 1)) {
@@ -1056,6 +1060,7 @@ static int h264_slice_header_init(H264Context *h)
         ret = AVERROR_INVALIDDATA;
         goto fail;
     }
+#endif
 
     if (h->sps.bit_depth_luma < 8 || h->sps.bit_depth_luma > 14 ||
         h->sps.bit_depth_luma == 11 || h->sps.bit_depth_luma == 13
@@ -1168,7 +1173,10 @@ int ff_h264_decode_slice_header(H264Context *h, H264SliceContext *sl)
 
     if (first_mb_in_slice == 0) { // FIXME better field boundary detection
         if (h->current_slice) {
-            av_assert0(!h->setup_finished);
+            if (h->setup_finished) {
+                av_log(h->avctx, AV_LOG_ERROR, "Too many fields\n");
+                return AVERROR_INVALIDDATA;
+            }
             if (h->cur_pic_ptr && FIELD_PICTURE(h) && h->first_field) {
                 ret = ff_h264_field_end(h, h->slice_ctx, 1);
                 h->current_slice = 0;
@@ -2533,8 +2541,11 @@ int ff_h264_execute_decode_slices(H264Context *h, unsigned context_count)
 
     h->slice_ctx[0].next_slice_idx = INT_MAX;
 
-    if (h->avctx->hwaccel ||
-        h->avctx->codec->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU)
+    if (h->avctx->hwaccel
+#if FF_API_CAP_VDPAU
+        || h->avctx->codec->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU
+#endif
+        )
         return 0;
     if (context_count == 1) {
         int ret;

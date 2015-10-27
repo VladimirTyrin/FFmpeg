@@ -180,6 +180,10 @@ static int decode_registered_user_data_closed_caption(H264Context *h, int size)
                 skip_bits(&h->gb, 8);   // marker_bits
             }
         }
+    } else {
+        int i;
+        for (i = 0; i < size - 1; i++)
+            skip_bits(&h->gb, 8);
     }
 
     return 0;

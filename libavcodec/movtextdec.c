@@ -36,6 +36,7 @@
 #define STYL_BOX   (1<<0)
 #define HLIT_BOX   (1<<1)
 #define HCLR_BOX   (1<<2)
+#define TWRP_BOX   (1<<3)
 
 #define BOTTOM_LEFT     1
 #define BOTTOM_CENTER   2
@@ -81,12 +82,17 @@ typedef struct {
 } HilightcolorBox;
 
 typedef struct {
+    uint8_t wrap_flag;
+} TextWrapBox;
+
+typedef struct {
     StyleBox **s;
     StyleBox *s_temp;
     HighlightBox h;
     HilightcolorBox c;
     FontRecord **ftab;
     FontRecord *ftab_temp;
+    TextWrapBox w;
     MovTextDefault d;
     uint8_t box_flags;
     uint16_t style_entries, ftab_entries;
@@ -115,6 +121,9 @@ static void mov_text_cleanup(MovTextContext *m)
 static void mov_text_cleanup_ftab(MovTextContext *m)
 {
     int i;
+    if (m->ftab_temp)
+        av_freep(&m->ftab_temp->font);
+    av_freep(&m->ftab_temp);
     if (m->ftab) {
         for(i = 0; i < m->count_f; i++) {
             av_freep(&m->ftab[i]->font);
@@ -126,7 +135,7 @@ static void mov_text_cleanup_ftab(MovTextContext *m)
 
 static int mov_text_tx3g(AVCodecContext *avctx, MovTextContext *m)
 {
-    char *tx3g_ptr = avctx->extradata;
+    uint8_t *tx3g_ptr = avctx->extradata;
     int i, box_size, font_length;
     int8_t v_align, h_align;
     int style_fontID;
@@ -204,7 +213,7 @@ static int mov_text_tx3g(AVCodecContext *avctx, MovTextContext *m)
             m->ftab_entries = 0;
             return -1;
         }
-        m->ftab_temp = av_malloc(sizeof(*m->ftab_temp));
+        m->ftab_temp = av_mallocz(sizeof(*m->ftab_temp));
         if (!m->ftab_temp) {
             mov_text_cleanup_ftab(m);
             return AVERROR(ENOMEM);
@@ -231,12 +240,20 @@ static int mov_text_tx3g(AVCodecContext *avctx, MovTextContext *m)
             mov_text_cleanup_ftab(m);
             return AVERROR(ENOMEM);
         }
+        m->ftab_temp = NULL;
         tx3g_ptr = tx3g_ptr + font_length;
     }
     for (i = 0; i < m->ftab_entries; i++) {
         if (style_fontID == m->ftab[i]->fontID)
             m->d.font = m->ftab[i]->font;
     }
+    return 0;
+}
+
+static int decode_twrp(const uint8_t *tsmb, MovTextContext *m, AVPacket *avpkt)
+{
+    m->box_flags |= TWRP_BOX;
+    m->w.wrap_flag = *tsmb++;
     return 0;
 }
 
@@ -298,7 +315,8 @@ static int decode_styl(const uint8_t *tsmb, MovTextContext *m, AVPacket *avpkt)
 static const Box box_types[] = {
     { MKBETAG('s','t','y','l'), 2, decode_styl },
     { MKBETAG('h','l','i','t'), 4, decode_hlit },
-    { MKBETAG('h','c','l','r'), 4, decode_hclr }
+    { MKBETAG('h','c','l','r'), 4, decode_hclr },
+    { MKBETAG('t','w','r','p'), 1, decode_twrp }
 };
 
 const static size_t box_count = FF_ARRAY_ELEMS(box_types);
@@ -309,6 +327,15 @@ static int text_to_ass(AVBPrint *buf, const char *text, const char *text_end,
     int i = 0;
     int j = 0;
     int text_pos = 0;
+
+    if (text < text_end && m->box_flags & TWRP_BOX) {
+        if (m->w.wrap_flag == 1) {
+            av_bprintf(buf, "{\\q1}"); /* End of line wrap */
+        } else {
+            av_bprintf(buf, "{\\q2}"); /* No wrap */
+        }
+    }
+
     while (text < text_end) {
         if (m->box_flags & STYL_BOX) {
             for (i = 0; i < m->style_entries; i++) {

@@ -36,6 +36,7 @@
 enum VectorScopeMode {
     LISSAJOUS,
     LISSAJOUS_XY,
+    POLAR,
     MODE_NB,
 };
 
@@ -59,6 +60,7 @@ static const AVOption avectorscope_options[] = {
     { "m",    "set mode", OFFSET(mode), AV_OPT_TYPE_INT, {.i64=LISSAJOUS}, 0, MODE_NB-1, FLAGS, "mode" },
     { "lissajous",    "", 0, AV_OPT_TYPE_CONST, {.i64=LISSAJOUS},    0, 0, FLAGS, "mode" },
     { "lissajous_xy", "", 0, AV_OPT_TYPE_CONST, {.i64=LISSAJOUS_XY}, 0, 0, FLAGS, "mode" },
+    { "polar",        "", 0, AV_OPT_TYPE_CONST, {.i64=POLAR},        0, 0, FLAGS, "mode" },
     { "rate", "set video rate", OFFSET(frame_rate), AV_OPT_TYPE_VIDEO_RATE, {.str="25"}, 0, 0, FLAGS },
     { "r",    "set video rate", OFFSET(frame_rate), AV_OPT_TYPE_VIDEO_RATE, {.str="25"}, 0, 0, FLAGS },
     { "size", "set video size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str="400x400"}, 0, 0, FLAGS },
@@ -124,24 +126,21 @@ static int query_formats(AVFilterContext *ctx)
     AVFilterLink *outlink = ctx->outputs[0];
     static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_NONE };
     static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGBA, AV_PIX_FMT_NONE };
+    int ret;
 
     formats = ff_make_format_list(sample_fmts);
-    if (!formats)
-        return AVERROR(ENOMEM);
-    ff_formats_ref(formats, &inlink->out_formats);
-
-    ff_add_channel_layout(&layout, AV_CH_LAYOUT_STEREO);
-    ff_channel_layouts_ref(layout, &inlink->out_channel_layouts);
+    if ((ret = ff_formats_ref         (formats, &inlink->out_formats        )) < 0 ||
+        (ret = ff_add_channel_layout  (&layout, AV_CH_LAYOUT_STEREO         )) < 0 ||
+        (ret = ff_channel_layouts_ref (layout , &inlink->out_channel_layouts)) < 0)
+        return ret;
 
     formats = ff_all_samplerates();
-    if (!formats)
-        return AVERROR(ENOMEM);
-    ff_formats_ref(formats, &inlink->out_samplerates);
+    if ((ret = ff_formats_ref(formats, &inlink->out_samplerates)) < 0)
+        return ret;
 
     formats = ff_make_format_list(pix_fmts);
-    if (!formats)
-        return AVERROR(ENOMEM);
-    ff_formats_ref(formats, &outlink->in_formats);
+    if ((ret = ff_formats_ref(formats, &outlink->in_formats)) < 0)
+        return ret;
 
     return 0;
 }
@@ -210,9 +209,18 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
             if (s->mode == LISSAJOUS) {
                 x = ((src[1] - src[0]) * zoom / (float)(UINT16_MAX) + 1) * hw;
                 y = (1.0 - (src[0] + src[1]) * zoom / (float)UINT16_MAX) * hh;
-            } else {
+            } else if (s->mode == LISSAJOUS_XY) {
                 x = (src[1] * zoom / (float)INT16_MAX + 1) * hw;
                 y = (src[0] * zoom / (float)INT16_MAX + 1) * hh;
+            } else {
+                float sx, sy, cx, cy;
+
+                sx = src[1] * zoom / (float)INT16_MAX;
+                sy = src[0] * zoom / (float)INT16_MAX;
+                cx = sx * sqrtf(1 - 0.5*sy*sy);
+                cy = sy * sqrtf(1 - 0.5*sx*sx);
+                x = hw + hw * FFSIGN(cx + cy) * (cx - cy) * .7;
+                y = s->h - s->h * fabsf(cx + cy) * .7;
             }
 
             draw_dot(s, x, y);
@@ -225,9 +233,18 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
             if (s->mode == LISSAJOUS) {
                 x = ((src[1] - src[0]) * zoom / 2 + 1) * hw;
                 y = (1.0 - (src[0] + src[1]) * zoom / 2) * hh;
-            } else {
+            } else if (s->mode == LISSAJOUS_XY){
                 x = (src[1] * zoom + 1) * hw;
                 y = (src[0] * zoom + 1) * hh;
+            } else {
+                float sx, sy, cx, cy;
+
+                sx = src[1] * zoom;
+                sy = src[0] * zoom;
+                cx = sx * sqrtf(1 - 0.5 * sy * sy);
+                cy = sy * sqrtf(1 - 0.5 * sx * sx);
+                x = hw + hw * FFSIGN(cx + cy) * (cx - cy) * .7;
+                y = s->h - s->h * fabsf(cx + cy) * .7;
             }
 
             draw_dot(s, x, y);

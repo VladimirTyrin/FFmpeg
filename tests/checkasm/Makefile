@@ -1,7 +1,12 @@
 # libavcodec tests
+AVCODECOBJS-$(CONFIG_ALAC_DECODER) += alacdsp.o
 AVCODECOBJS-$(CONFIG_BSWAPDSP) += bswapdsp.o
+AVCODECOBJS-$(CONFIG_FLACDSP)  += flacdsp.o
 AVCODECOBJS-$(CONFIG_H264PRED) += h264pred.o
 AVCODECOBJS-$(CONFIG_H264QPEL) += h264qpel.o
+AVCODECOBJS-$(CONFIG_JPEG2000_DECODER) += jpeg2000dsp.o
+AVCODECOBJS-$(CONFIG_V210_ENCODER) += v210enc.o
+AVCODECOBJS-$(CONFIG_VP9_DECODER) += vp9dsp.o
 
 CHECKASMOBJS-$(CONFIG_AVCODEC) += $(AVCODECOBJS-yes)
 
@@ -17,8 +22,7 @@ CHECKASMDIRS := $(sort $(dir $(CHECKASMOBJS)))
 $(CHECKASMOBJS): | $(CHECKASMDIRS)
 OBJDIRS += $(CHECKASMDIRS)
 
-# We rely on function pointers intentionally declared without specified argument types.
-tests/checkasm/%.o: CFLAGS := $(CFLAGS:-Wstrict-prototypes=-Wno-strict-prototypes) -Umain
+tests/checkasm/checkasm.o: CFLAGS += -Umain
 
 CHECKASM := tests/checkasm/checkasm$(EXESUF)
 
@@ -27,7 +31,7 @@ $(CHECKASM): $(EXEOBJS) $(CHECKASMOBJS) $(FF_STATIC_DEP_LIBS)
 
 checkasm: $(CHECKASM)
 
-clean:: checkasmclean
+testclean:: checkasmclean
 
 checkasmclean:
 	$(RM) $(CHECKASM) $(CLEANSUFFIXES:%=tests/checkasm/%) $(CLEANSUFFIXES:%=tests/checkasm/$(ARCH)/%)

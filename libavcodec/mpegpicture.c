@@ -58,7 +58,11 @@ int ff_mpeg_framesize_alloc(AVCodecContext *avctx, MotionEstContext *me,
 {
     int alloc_size = FFALIGN(FFABS(linesize) + 64, 32);
 
-    if (avctx->hwaccel || avctx->codec->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU)
+    if (avctx->hwaccel
+#if FF_API_CAP_VDPAU
+        || avctx->codec->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU
+#endif
+        )
         return 0;
 
     if (linesize < 24) {
@@ -382,6 +386,9 @@ int ff_mpeg_ref_picture(AVCodecContext *avctx, Picture *dst, Picture *src)
     dst->needs_realloc           = src->needs_realloc;
     dst->reference               = src->reference;
     dst->shared                  = src->shared;
+
+    memcpy(dst->encoding_error, src->encoding_error,
+           sizeof(dst->encoding_error));
 
     return 0;
 fail:

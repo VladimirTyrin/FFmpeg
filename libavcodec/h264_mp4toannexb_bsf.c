@@ -122,7 +122,7 @@ pps:
         if (!unit_nb && !sps_done++) {
             unit_nb = *extradata++; /* number of pps unit(s) */
             if (unit_nb) {
-                ctx->pps_offset = (extradata - 1) - (avctx->extradata + 4);
+                ctx->pps_offset = total_size;
                 pps_seen = 1;
             }
         }
@@ -201,7 +201,7 @@ static int h264_mp4toannexb_filter(AVBitStreamFilterContext *bsfc,
         buf      += ctx->length_size;
         unit_type = *buf & 0x1f;
 
-        if (buf + nal_size > buf_end || nal_size < 0)
+        if (nal_size > buf_end - buf || nal_size < 0)
             goto fail;
 
         if (unit_type == 7)
@@ -276,7 +276,7 @@ static void h264_mp4toannexb_filter_close(AVBitStreamFilterContext *bsfc)
 {
     H264BSFContext *ctx = bsfc->priv_data;
     if (ctx->private_spspps)
-        av_free(ctx->spspps_buf);
+        av_freep(&ctx->spspps_buf);
 }
 
 AVBitStreamFilter ff_h264_mp4toannexb_bsf = {

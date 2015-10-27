@@ -118,14 +118,15 @@ static av_cold void uninit(AVFilterContext *ctx)
 static int query_formats(AVFilterContext *ctx)
 {
     AVFilterFormats *formats = NULL;
-    int fmt;
+    int fmt, ret;
 
     for (fmt = 0; av_pix_fmt_desc_get(fmt); fmt++) {
         const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(fmt);
         if (!(desc->flags & (AV_PIX_FMT_FLAG_HWACCEL | AV_PIX_FMT_FLAG_BITSTREAM | AV_PIX_FMT_FLAG_PAL)) &&
             (desc->flags & AV_PIX_FMT_FLAG_PLANAR || desc->nb_components == 1) &&
-            (!(desc->flags & AV_PIX_FMT_FLAG_BE) == !HAVE_BIGENDIAN || desc->comp[0].depth_minus1 == 7))
-            ff_add_format(&formats, fmt);
+            (!(desc->flags & AV_PIX_FMT_FLAG_BE) == !HAVE_BIGENDIAN || desc->comp[0].depth == 8) &&
+            (ret = ff_add_format(&formats, fmt)) < 0)
+            return ret;
     }
 
     return ff_set_common_formats(ctx, formats);
@@ -351,7 +352,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     int w[4] = { inlink->w, cw, cw, inlink->w };
     int h[4] = { in->height, ch, ch, in->height };
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(inlink->format);
-    const int depth = desc->comp[0].depth_minus1 + 1;
+    const int depth = desc->comp[0].depth;
     const int pixsize = (depth+7)/8;
 
     out = ff_get_video_buffer(outlink, outlink->w, outlink->h);

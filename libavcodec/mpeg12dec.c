@@ -96,13 +96,6 @@ static const uint32_t btype2mb_type[11] = {
     MB_TYPE_QUANT | MB_TYPE_L0L1 | MB_TYPE_CBP,
 };
 
-static const uint8_t non_linear_qscale[32] = {
-     0,  1,  2,  3,  4,  5,   6,   7,
-     8, 10, 12, 14, 16, 18,  20,  22,
-    24, 28, 32, 36, 40, 44,  48,  52,
-    56, 64, 72, 80, 88, 96, 104, 112,
-};
-
 /* as H.263, but only 17 codes */
 static int mpeg_decode_motion(MpegEncContext *s, int fcode, int pred)
 {
@@ -719,7 +712,7 @@ static inline int get_qscale(MpegEncContext *s)
 {
     int qscale = get_bits(&s->gb, 5);
     if (s->q_scale_type)
-        return non_linear_qscale[qscale];
+        return ff_mpeg2_non_linear_qscale[qscale];
     else
         return qscale << 1;
 }
@@ -1137,6 +1130,7 @@ static av_cold int mpeg_decode_init(AVCodecContext *avctx)
     ff_mpeg12_common_init(&s->mpeg_enc_ctx);
     ff_mpeg12_init_vlcs();
 
+    s2->chroma_format              = 1;
     s->mpeg_enc_ctx_allocated      = 0;
     s->mpeg_enc_ctx.picture_number = 0;
     s->repeat_field                = 0;
@@ -1145,6 +1139,7 @@ static av_cold int mpeg_decode_init(AVCodecContext *avctx)
     return 0;
 }
 
+#if HAVE_THREADS
 static int mpeg_decode_update_thread_context(AVCodecContext *avctx,
                                              const AVCodecContext *avctx_from)
 {
@@ -1169,6 +1164,7 @@ static int mpeg_decode_update_thread_context(AVCodecContext *avctx,
 
     return 0;
 }
+#endif
 
 static void quant_matrix_rebuild(uint16_t *matrix, const uint8_t *old_perm,
                                  const uint8_t *new_perm)
@@ -1186,8 +1182,10 @@ static const enum AVPixelFormat mpeg1_hwaccel_pixfmt_list_420[] = {
 #if CONFIG_MPEG1_XVMC_HWACCEL
     AV_PIX_FMT_XVMC,
 #endif
-#if CONFIG_MPEG1_VDPAU_HWACCEL
+#if CONFIG_MPEG1_VDPAU_DECODER && FF_API_VDPAU
     AV_PIX_FMT_VDPAU_MPEG1,
+#endif
+#if CONFIG_MPEG1_VDPAU_HWACCEL
     AV_PIX_FMT_VDPAU,
 #endif
     AV_PIX_FMT_YUV420P,
@@ -1198,8 +1196,10 @@ static const enum AVPixelFormat mpeg2_hwaccel_pixfmt_list_420[] = {
 #if CONFIG_MPEG2_XVMC_HWACCEL
     AV_PIX_FMT_XVMC,
 #endif
-#if CONFIG_MPEG2_VDPAU_HWACCEL
+#if CONFIG_MPEG_VDPAU_DECODER && FF_API_VDPAU
     AV_PIX_FMT_VDPAU_MPEG2,
+#endif
+#if CONFIG_MPEG2_VDPAU_HWACCEL
     AV_PIX_FMT_VDPAU,
 #endif
 #if CONFIG_MPEG2_DXVA2_HWACCEL
@@ -1209,7 +1209,7 @@ static const enum AVPixelFormat mpeg2_hwaccel_pixfmt_list_420[] = {
     AV_PIX_FMT_D3D11VA_VLD,
 #endif
 #if CONFIG_MPEG2_VAAPI_HWACCEL
-    AV_PIX_FMT_VAAPI_VLD,
+    AV_PIX_FMT_VAAPI,
 #endif
 #if CONFIG_MPEG2_VIDEOTOOLBOX_HWACCEL
     AV_PIX_FMT_VIDEOTOOLBOX,
@@ -1228,9 +1228,11 @@ static const enum AVPixelFormat mpeg12_pixfmt_list_444[] = {
     AV_PIX_FMT_NONE
 };
 
+#if FF_API_VDPAU
 static inline int uses_vdpau(AVCodecContext *avctx) {
     return avctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG1 || avctx->pix_fmt == AV_PIX_FMT_VDPAU_MPEG2;
 }
+#endif
 
 static enum AVPixelFormat mpeg_get_pixelformat(AVCodecContext *avctx)
 {
@@ -1256,7 +1258,11 @@ static enum AVPixelFormat mpeg_get_pixelformat(AVCodecContext *avctx)
 static void setup_hwaccel_for_pixfmt(AVCodecContext *avctx)
 {
     // until then pix_fmt may be changed right after codec init
-    if (avctx->hwaccel || uses_vdpau(avctx))
+    if (avctx->hwaccel
+#if FF_API_VDPAU
+        || uses_vdpau(avctx)
+#endif
+        )
         if (avctx->idct_algo == FF_IDCT_AUTO)
             avctx->idct_algo = FF_IDCT_SIMPLE;
 
@@ -1266,7 +1272,9 @@ static void setup_hwaccel_for_pixfmt(AVCodecContext *avctx)
 
         s->pack_pblocks = 1;
 #if FF_API_XVMC
+FF_DISABLE_DEPRECATION_WARNINGS
         avctx->xvmc_acceleration = 2;
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif /* FF_API_XVMC */
     }
 }
@@ -1478,7 +1486,7 @@ static void mpeg_decode_sequence_extension(Mpeg1Context *s1)
     s->width  |= (horiz_size_ext << 12);
     s->height |= (vert_size_ext  << 12);
     bit_rate_ext = get_bits(&s->gb, 12);  /* XXX: handle it */
-    s->bit_rate += (bit_rate_ext << 18) * 400;
+    s->bit_rate += (bit_rate_ext << 18) * 400LL;
     check_marker(&s->gb, "after bit rate extension");
     s->avctx->rc_buffer_size += get_bits(&s->gb, 8) * 1024 * 16 << 10;
 
@@ -1494,7 +1502,7 @@ static void mpeg_decode_sequence_extension(Mpeg1Context *s1)
 
     if (s->avctx->debug & FF_DEBUG_PICT_INFO)
         av_log(s->avctx, AV_LOG_DEBUG,
-               "profile: %d, level: %d ps: %d cf:%d vbv buffer: %d, bitrate:%d\n",
+               "profile: %d, level: %d ps: %d cf:%d vbv buffer: %d, bitrate:%"PRId64"\n",
                s->avctx->profile, s->avctx->level, s->progressive_sequence, s->chroma_format,
                s->avctx->rc_buffer_size, s->bit_rate);
 }
@@ -2163,12 +2171,10 @@ static int mpeg1_decode_sequence(AVCodecContext *avctx,
                "frame_rate_index %d is invalid\n", s->frame_rate_index);
         s->frame_rate_index = 1;
     }
-    s->bit_rate = get_bits(&s->gb, 18) * 400;
+    s->bit_rate = get_bits(&s->gb, 18) * 400LL;
     if (check_marker(&s->gb, "in sequence header") == 0) {
         return AVERROR_INVALIDDATA;
     }
-    s->width  = width;
-    s->height = height;
 
     s->avctx->rc_buffer_size = get_bits(&s->gb, 10) * 1024 * 16;
     skip_bits(&s->gb, 1);
@@ -2200,6 +2206,9 @@ static int mpeg1_decode_sequence(AVCodecContext *avctx,
         return AVERROR_INVALIDDATA;
     }
 
+    s->width  = width;
+    s->height = height;
+
     /* We set MPEG-2 parameters so that it emulates MPEG-1. */
     s->progressive_sequence = 1;
     s->progressive_frame    = 1;
@@ -2215,7 +2224,7 @@ static int mpeg1_decode_sequence(AVCodecContext *avctx,
         s->low_delay = 1;
 
     if (s->avctx->debug & FF_DEBUG_PICT_INFO)
-        av_log(s->avctx, AV_LOG_DEBUG, "vbv buffer: %d, bitrate:%d, aspect_ratio_info: %d \n",
+        av_log(s->avctx, AV_LOG_DEBUG, "vbv buffer: %d, bitrate:%"PRId64", aspect_ratio_info: %d \n",
                s->avctx->rc_buffer_size, s->bit_rate, s->aspect_ratio_info);
 
     return 0;
@@ -2460,9 +2469,11 @@ static int decode_chunks(AVCodecContext *avctx, AVFrame *picture,
                         s2->er.error_count += s2->thread_context[i]->er.error_count;
                 }
 
+#if FF_API_VDPAU
                 if ((CONFIG_MPEG_VDPAU_DECODER || CONFIG_MPEG1_VDPAU_DECODER)
                     && uses_vdpau(avctx))
                     ff_vdpau_mpeg_picture_complete(s2, buf, buf_size, s->slice_count);
+#endif
 
                 ret = slice_end(avctx, picture);
                 if (ret < 0)
@@ -2711,10 +2722,12 @@ static int decode_chunks(AVCodecContext *avctx, AVFrame *picture,
                     return AVERROR_INVALIDDATA;
                 }
 
+#if FF_API_VDPAU
                 if (uses_vdpau(avctx)) {
                     s->slice_count++;
                     break;
                 }
+#endif
 
                 if (HAVE_THREADS &&
                     (avctx->active_thread_type & FF_THREAD_SLICE) &&
@@ -2905,6 +2918,7 @@ AVCodec ff_mpegvideo_decoder = {
 
 #if FF_API_XVMC
 #if CONFIG_MPEG_XVMC_DECODER
+FF_DISABLE_DEPRECATION_WARNINGS
 static av_cold int mpeg_mc_decode_init(AVCodecContext *avctx)
 {
     if (avctx->active_thread_type & FF_THREAD_SLICE)
@@ -2936,11 +2950,11 @@ AVCodec ff_mpeg_xvmc_decoder = {
                       AV_CODEC_CAP_DELAY,
     .flush          = flush,
 };
-
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 #endif /* FF_API_XVMC */
 
-#if CONFIG_MPEG_VDPAU_DECODER
+#if CONFIG_MPEG_VDPAU_DECODER && FF_API_VDPAU
 AVCodec ff_mpeg_vdpau_decoder = {
     .name           = "mpegvideo_vdpau",
     .long_name      = NULL_IF_CONFIG_SMALL("MPEG-1/2 video (VDPAU acceleration)"),
@@ -2956,7 +2970,7 @@ AVCodec ff_mpeg_vdpau_decoder = {
 };
 #endif
 
-#if CONFIG_MPEG1_VDPAU_DECODER
+#if CONFIG_MPEG1_VDPAU_DECODER && FF_API_VDPAU
 AVCodec ff_mpeg1_vdpau_decoder = {
     .name           = "mpeg1video_vdpau",
     .long_name      = NULL_IF_CONFIG_SMALL("MPEG-1 video (VDPAU acceleration)"),

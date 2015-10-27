@@ -667,7 +667,7 @@ static av_cold int encode_init(AVCodecContext *avctx)
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(avctx->pix_fmt);
     int i, j, k, m, ret;
 
-    if ((ret = ffv1_common_init(avctx)) < 0)
+    if ((ret = ff_ffv1_common_init(avctx)) < 0)
         return ret;
 
     s->version = 0;
@@ -683,8 +683,13 @@ static av_cold int encode_init(AVCodecContext *avctx)
     if (avctx->level <= 0 && s->version == 2) {
         s->version = 3;
     }
-    if (avctx->level >= 0 && avctx->level <= 4)
-        s->version = FFMAX(s->version, avctx->level);
+    if (avctx->level >= 0 && avctx->level <= 4) {
+        if (avctx->level < s->version) {
+            av_log(avctx, AV_LOG_ERROR, "Version %d needed for requested features but %d requested\n", s->version, avctx->level);
+            return AVERROR(EINVAL);
+        }
+        s->version = avctx->level;
+    }
 
     if (s->ec < 0) {
         s->ec = (s->version >= 3);
@@ -851,7 +856,7 @@ static av_cold int encode_init(AVCodecContext *avctx)
         p->context_count     = s->context_count[p->quant_table_index];
     }
 
-    if ((ret = ffv1_allocate_initial_states(s)) < 0)
+    if ((ret = ff_ffv1_allocate_initial_states(s)) < 0)
         return ret;
 
 #if FF_API_CODED_FRAME
@@ -975,9 +980,10 @@ slices_ok:
             return ret;
     }
 
-    if ((ret = ffv1_init_slice_contexts(s)) < 0)
+    if ((ret = ff_ffv1_init_slice_contexts(s)) < 0)
         return ret;
-    if ((ret = ffv1_init_slices_state(s)) < 0)
+    s->slice_count = s->max_slice_count;
+    if ((ret = ff_ffv1_init_slices_state(s)) < 0)
         return ret;
 
 #define STATS_OUT_SIZE 1024 * 1024 * 6
@@ -986,7 +992,7 @@ slices_ok:
         if (!avctx->stats_out)
             return AVERROR(ENOMEM);
         for (i = 0; i < s->quant_table_count; i++)
-            for (j = 0; j < s->slice_count; j++) {
+            for (j = 0; j < s->max_slice_count; j++) {
                 FFV1Context *sf = s->slice_context[j];
                 av_assert0(!sf->rc_stat2[i]);
                 sf->rc_stat2[i] = av_mallocz(s->context_count[i] *
@@ -1023,7 +1029,7 @@ static void encode_slice_header(FFV1Context *f, FFV1Context *fs)
     if (f->version > 3) {
         put_rac(c, state, fs->slice_coding_mode == 1);
         if (fs->slice_coding_mode == 1)
-            ffv1_clear_slice_state(f, fs);
+            ff_ffv1_clear_slice_state(f, fs);
         put_symbol(c, state, fs->slice_coding_mode, 0);
         if (fs->slice_coding_mode != 1) {
             put_symbol(c, state, fs->slice_rct_by_coef, 0);
@@ -1123,7 +1129,7 @@ static int encode_slice(AVCodecContext *c, void *arg)
     int x            = fs->slice_x;
     int y            = fs->slice_y;
     const AVFrame *const p = f->picture.f;
-    const int ps     = av_pix_fmt_desc_get(c->pix_fmt)->comp[0].step_minus1 + 1;
+    const int ps     = av_pix_fmt_desc_get(c->pix_fmt)->comp[0].step;
     int ret;
     RangeCoder c_bak = fs->c;
     const uint8_t *planes[3] = {p->data[0] + ps*x + y*p->linesize[0],
@@ -1140,7 +1146,7 @@ static int encode_slice(AVCodecContext *c, void *arg)
 
 retry:
     if (f->key_frame)
-        ffv1_clear_slice_state(f, fs);
+        ff_ffv1_clear_slice_state(f, fs);
     if (f->version > 2) {
         encode_slice_header(f, fs);
     }
@@ -1210,6 +1216,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             for (i = 0; i < f->quant_table_count; i++)
                 memset(f->rc_stat2[i], 0, f->context_count[i] * sizeof(*f->rc_stat2[i]));
 
+            av_assert0(f->slice_count == f->max_slice_count);
             for (j = 0; j < f->slice_count; j++) {
                 FFV1Context *fs = f->slice_context[j];
                 for (i = 0; i < 256; i++) {
@@ -1337,7 +1344,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
 static av_cold int encode_close(AVCodecContext *avctx)
 {
-    ffv1_close(avctx);
+    ff_ffv1_close(avctx);
     return 0;
 }
 

@@ -19,6 +19,7 @@
  */
 
 #include "libavutil/avstring.h"
+#include "libavutil/internal.h"
 #include "libavutil/parseutils.h"
 #include "avformat.h"
 #include "internal.h"
@@ -200,7 +201,7 @@ static int ftp_send_command(FTPContext *s, const char *command,
 {
     int err;
 
-    av_dlog(s, "%s", command);
+    ff_dlog(s, "%s", command);
 
     if (response)
         *response = NULL;
@@ -283,7 +284,7 @@ static int ftp_passive_mode_epsv(FTPContext *s)
     end[-1] = '\0';
 
     s->server_data_port = atoi(start);
-    av_dlog(s, "Server data port: %d\n", s->server_data_port);
+    ff_dlog(s, "Server data port: %d\n", s->server_data_port);
 
     av_free(res);
     return 0;
@@ -329,7 +330,7 @@ static int ftp_passive_mode(FTPContext *s)
     start = av_strtok(end, ",", &end);
     if (!start) goto fail;
     s->server_data_port += atoi(start);
-    av_dlog(s, "Server data port: %d\n", s->server_data_port);
+    ff_dlog(s, "Server data port: %d\n", s->server_data_port);
 
     av_free(res);
     return 0;
@@ -650,7 +651,7 @@ static int ftp_connect(URLContext *h, const char *url)
     FTPContext *s = h->priv_data;
 
     s->state = DISCONNECTED;
-    s->listing_method = UNKNOWN;
+    s->listing_method = UNKNOWN_METHOD;
     s->filesize = -1;
     s->position = 0;
     s->features = NULL;
@@ -698,7 +699,7 @@ static int ftp_open(URLContext *h, const char *url, int flags)
     FTPContext *s = h->priv_data;
     int err;
 
-    av_dlog(h, "ftp protocol open\n");
+    ff_dlog(h, "ftp protocol open\n");
 
     if ((err = ftp_connect(h, url)) < 0)
         goto fail;
@@ -726,7 +727,7 @@ static int64_t ftp_seek(URLContext *h, int64_t pos, int whence)
     int err;
     int64_t new_pos, fake_pos;
 
-    av_dlog(h, "ftp protocol seek %"PRId64" %d\n", pos, whence);
+    ff_dlog(h, "ftp protocol seek %"PRId64" %d\n", pos, whence);
 
     switch(whence) {
     case AVSEEK_SIZE:
@@ -768,7 +769,7 @@ static int ftp_read(URLContext *h, unsigned char *buf, int size)
     FTPContext *s = h->priv_data;
     int read, err, retry_done = 0;
 
-    av_dlog(h, "ftp protocol read %d bytes\n", size);
+    ff_dlog(h, "ftp protocol read %d bytes\n", size);
   retry:
     if (s->state == DISCONNECTED) {
         /* optimization */
@@ -826,7 +827,7 @@ static int ftp_write(URLContext *h, const unsigned char *buf, int size)
     FTPContext *s = h->priv_data;
     int written;
 
-    av_dlog(h, "ftp protocol write %d bytes\n", size);
+    ff_dlog(h, "ftp protocol write %d bytes\n", size);
 
     if (s->state == DISCONNECTED) {
         if ((err = ftp_connect_data_connection(h)) < 0)
@@ -853,7 +854,7 @@ static int ftp_close(URLContext *h)
 {
     FTPContext *s = h->priv_data;
 
-    av_dlog(h, "ftp protocol close\n");
+    ff_dlog(h, "ftp protocol close\n");
 
     ftp_close_both_connections(s);
     av_freep(&s->user);
@@ -869,7 +870,7 @@ static int ftp_get_file_handle(URLContext *h)
 {
     FTPContext *s = h->priv_data;
 
-    av_dlog(h, "ftp protocol get_file_handle\n");
+    ff_dlog(h, "ftp protocol get_file_handle\n");
 
     if (s->conn_data)
         return ffurl_get_file_handle(s->conn_data);
@@ -881,7 +882,7 @@ static int ftp_shutdown(URLContext *h, int flags)
 {
     FTPContext *s = h->priv_data;
 
-    av_dlog(h, "ftp protocol shutdown\n");
+    ff_dlog(h, "ftp protocol shutdown\n");
 
     if (s->conn_data)
         return ffurl_shutdown(s->conn_data, flags);
@@ -933,7 +934,7 @@ static int ftp_parse_entry_nlst(char *line, AVIODirEntry *next)
 static int ftp_parse_entry_mlsd(char *mlsd, AVIODirEntry *next)
 {
     char *fact, *value;
-    av_dlog(NULL, "%s\n", mlsd);
+    ff_dlog(NULL, "%s\n", mlsd);
     while(fact = av_strtok(mlsd, ";", &mlsd)) {
         if (fact[0] == ' ') {
             next->name = av_strdup(&fact[1]);
@@ -1037,6 +1038,65 @@ static int ftp_close_dir(URLContext *h)
     return 0;
 }
 
+static int ftp_delete(URLContext *h)
+{
+    FTPContext *s = h->priv_data;
+    char command[MAX_URL_SIZE];
+    static const int del_codes[] = {250, 421, 450, 500, 501, 502, 530, 550, 0};
+    static const int rmd_codes[] = {250, 421, 500, 501, 502, 530, 550, 0};
+    int ret;
+
+    if ((ret = ftp_connect(h, h->filename)) < 0)
+        goto cleanup;
+
+    snprintf(command, sizeof(command), "DELE %s\r\n", s->path);
+    if (ftp_send_command(s, command, del_codes, NULL) == 250) {
+        ret = 0;
+        goto cleanup;
+    }
+
+    snprintf(command, sizeof(command), "RMD %s\r\n", s->path);
+    if (ftp_send_command(s, command, rmd_codes, NULL) == 250)
+        ret = 0;
+    else
+        ret = AVERROR(EIO);
+
+cleanup:
+    ftp_close(h);
+    return ret;
+}
+
+static int ftp_move(URLContext *h_src, URLContext *h_dst)
+{
+    FTPContext *s = h_src->priv_data;
+    char command[MAX_URL_SIZE], path[MAX_URL_SIZE];
+    static const int rnfr_codes[] = {350, 421, 450, 500, 501, 502, 503, 530, 0};
+    static const int rnto_codes[] = {250, 421, 500, 501, 502, 503, 530, 532, 553, 0};
+    int ret;
+
+    if ((ret = ftp_connect(h_src, h_src->filename)) < 0)
+        goto cleanup;
+
+    snprintf(command, sizeof(command), "RNFR %s\r\n", s->path);
+    if (ftp_send_command(s, command, rnfr_codes, NULL) != 350) {
+        ret = AVERROR(EIO);
+        goto cleanup;
+    }
+
+    av_url_split(0, 0, 0, 0, 0, 0, 0,
+                 path, sizeof(path),
+                 h_dst->filename);
+    snprintf(command, sizeof(command), "RNTO %s\r\n", path);
+    if (ftp_send_command(s, command, rnto_codes, NULL) == 250)
+        ret = 0;
+    else
+        ret = AVERROR(EIO);
+
+cleanup:
+    ftp_close(h_src);
+    return ret;
+}
+
 URLProtocol ff_ftp_protocol = {
     .name                = "ftp",
     .url_open            = ftp_open,
@@ -1051,5 +1111,7 @@ URLProtocol ff_ftp_protocol = {
     .url_open_dir        = ftp_open_dir,
     .url_read_dir        = ftp_read_dir,
     .url_close_dir       = ftp_close_dir,
+    .url_delete          = ftp_delete,
+    .url_move            = ftp_move,
     .flags               = URL_PROTOCOL_FLAG_NETWORK,
 };

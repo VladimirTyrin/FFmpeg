@@ -428,30 +428,10 @@ static av_cold int vc1_decode_init(AVCodecContext *avctx)
 
     if (!avctx->extradata_size || !avctx->extradata)
         return -1;
-    if (!CONFIG_GRAY || !(avctx->flags & AV_CODEC_FLAG_GRAY))
-        avctx->pix_fmt = ff_get_format(avctx, avctx->codec->pix_fmts);
-    else {
-        avctx->pix_fmt = AV_PIX_FMT_GRAY8;
-        if (avctx->color_range == AVCOL_RANGE_UNSPECIFIED)
-            avctx->color_range = AVCOL_RANGE_MPEG;
-    }
     v->s.avctx = avctx;
 
     if ((ret = ff_vc1_init_common(v)) < 0)
         return ret;
-    // ensure static VLC tables are initialized
-    if ((ret = ff_msmpeg4_decode_init(avctx)) < 0)
-        return ret;
-    if ((ret = ff_vc1_decode_init_alloc_tables(v)) < 0)
-        return ret;
-    // Hack to ensure the above functions will be called
-    // again once we know all necessary settings.
-    // That this is necessary might indicate a bug.
-    ff_vc1_decode_end(avctx);
-
-    ff_blockdsp_init(&s->bdsp, avctx);
-    ff_h264chroma_init(&v->h264chroma, 8);
-    ff_qpeldsp_init(&s->qdsp);
 
     if (avctx->codec_id == AV_CODEC_ID_WMV3 || avctx->codec_id == AV_CODEC_ID_WMV3IMAGE) {
         int count = 0;
@@ -524,13 +504,37 @@ static av_cold int vc1_decode_init(AVCodecContext *avctx)
         v->res_sprite = (avctx->codec_id == AV_CODEC_ID_VC1IMAGE);
     }
 
-    v->sprite_output_frame = av_frame_alloc();
-    if (!v->sprite_output_frame)
-        return AVERROR(ENOMEM);
-
     avctx->profile = v->profile;
     if (v->profile == PROFILE_ADVANCED)
         avctx->level = v->level;
+
+    if (!CONFIG_GRAY || !(avctx->flags & AV_CODEC_FLAG_GRAY))
+        avctx->pix_fmt = ff_get_format(avctx, avctx->codec->pix_fmts);
+    else {
+        avctx->pix_fmt = AV_PIX_FMT_GRAY8;
+        if (avctx->color_range == AVCOL_RANGE_UNSPECIFIED)
+            avctx->color_range = AVCOL_RANGE_MPEG;
+    }
+
+    // ensure static VLC tables are initialized
+    if ((ret = ff_msmpeg4_decode_init(avctx)) < 0)
+        return ret;
+    if ((ret = ff_vc1_decode_init_alloc_tables(v)) < 0)
+        return ret;
+    // Hack to ensure the above functions will be called
+    // again once we know all necessary settings.
+    // That this is necessary might indicate a bug.
+    ff_vc1_decode_end(avctx);
+
+    ff_blockdsp_init(&s->bdsp, avctx);
+    ff_h264chroma_init(&v->h264chroma, 8);
+    ff_qpeldsp_init(&s->qdsp);
+
+    // Must happen after calling ff_vc1_decode_end
+    // to avoid de-allocating the sprite_output_frame
+    v->sprite_output_frame = av_frame_alloc();
+    if (!v->sprite_output_frame)
+        return AVERROR(ENOMEM);
 
     avctx->has_b_frames = !!avctx->max_b_frames;
 
@@ -647,12 +651,14 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
         return buf_size;
     }
 
+#if FF_API_CAP_VDPAU
     if (s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU) {
         if (v->profile < PROFILE_ADVANCED)
             avctx->pix_fmt = AV_PIX_FMT_VDPAU_WMV3;
         else
             avctx->pix_fmt = AV_PIX_FMT_VDPAU_VC1;
     }
+#endif
 
     //for advanced profile we may need to parse and unescape data
     if (avctx->codec_id == AV_CODEC_ID_VC1 || avctx->codec_id == AV_CODEC_ID_VC1IMAGE) {
@@ -672,15 +678,21 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
                 if (size <= 0) continue;
                 switch (AV_RB32(start)) {
                 case VC1_CODE_FRAME:
-                    if (avctx->hwaccel ||
-                        s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU)
+                    if (avctx->hwaccel
+#if FF_API_CAP_VDPAU
+                        || s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU
+#endif
+                        )
                         buf_start = start;
                     buf_size2 = vc1_unescape_buffer(start + 4, size, buf2);
                     break;
                 case VC1_CODE_FIELD: {
                     int buf_size3;
-                    if (avctx->hwaccel ||
-                        s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU)
+                    if (avctx->hwaccel
+#if FF_API_CAP_VDPAU
+                        || s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU
+#endif
+                        )
                         buf_start_second_field = start;
                     tmp = av_realloc_array(slices, sizeof(*slices), (n_slices+1));
                     if (!tmp) {
@@ -742,8 +754,11 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
                 ret = AVERROR_INVALIDDATA;
                 goto err;
             } else { // found field marker, unescape second field
-                if (avctx->hwaccel ||
-                    s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU)
+                if (avctx->hwaccel
+#if FF_API_CAP_VDPAU
+                    || s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU
+#endif
+                    )
                     buf_start_second_field = divider;
                 tmp = av_realloc_array(slices, sizeof(*slices), (n_slices+1));
                 if (!tmp) {
@@ -890,6 +905,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
     s->me.qpel_put = s->qdsp.put_qpel_pixels_tab;
     s->me.qpel_avg = s->qdsp.avg_qpel_pixels_tab;
 
+#if FF_API_CAP_VDPAU
     if ((CONFIG_VC1_VDPAU_DECODER)
         &&s->avctx->codec->capabilities&AV_CODEC_CAP_HWACCEL_VDPAU) {
         if (v->field_mode && buf_start_second_field) {
@@ -898,7 +914,9 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
         } else {
             ff_vdpau_vc1_decode_picture(s, buf_start, (buf + buf_size) - buf_start);
         }
-    } else if (avctx->hwaccel) {
+    } else
+#endif
+    if (avctx->hwaccel) {
         if (v->field_mode && buf_start_second_field) {
             // decode first field
             s->picture_structure = PICT_BOTTOM_FIELD - v->tff;
@@ -1101,7 +1119,7 @@ static const enum AVPixelFormat vc1_hwaccel_pixfmt_list_420[] = {
     AV_PIX_FMT_D3D11VA_VLD,
 #endif
 #if CONFIG_VC1_VAAPI_HWACCEL
-    AV_PIX_FMT_VAAPI_VLD,
+    AV_PIX_FMT_VAAPI,
 #endif
 #if CONFIG_VC1_VDPAU_HWACCEL
     AV_PIX_FMT_VDPAU,
@@ -1142,7 +1160,7 @@ AVCodec ff_wmv3_decoder = {
 };
 #endif
 
-#if CONFIG_WMV3_VDPAU_DECODER
+#if CONFIG_WMV3_VDPAU_DECODER && FF_API_VDPAU
 AVCodec ff_wmv3_vdpau_decoder = {
     .name           = "wmv3_vdpau",
     .long_name      = NULL_IF_CONFIG_SMALL("Windows Media Video 9 VDPAU"),
@@ -1158,7 +1176,7 @@ AVCodec ff_wmv3_vdpau_decoder = {
 };
 #endif
 
-#if CONFIG_VC1_VDPAU_DECODER
+#if CONFIG_VC1_VDPAU_DECODER && FF_API_VDPAU
 AVCodec ff_vc1_vdpau_decoder = {
     .name           = "vc1_vdpau",
     .long_name      = NULL_IF_CONFIG_SMALL("SMPTE VC-1 VDPAU"),
