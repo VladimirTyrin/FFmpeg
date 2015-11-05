@@ -1244,7 +1244,7 @@ static void do_video_out(AVFormatContext *s,
 
 static double psnr(double d)
 {
-    return -10.0 * log(d) / log(10.0);
+    return -10.0 * log10(d);
 }
 
 static void do_video_stats(OutputStream *ost, int frame_size)
@@ -2578,8 +2578,7 @@ static InputStream *get_input_stream(OutputStream *ost)
 
 static int compare_int64(const void *a, const void *b)
 {
-    int64_t va = *(int64_t *)a, vb = *(int64_t *)b;
-    return va < vb ? -1 : va > vb ? +1 : 0;
+    return FFDIFFSIGN(*(const int64_t *)a, *(const int64_t *)b);
 }
 
 static int init_output_stream(OutputStream *ost, char *error, int error_len)
@@ -3698,7 +3697,8 @@ static int seek_to_start(InputFile *ifile, AVFormatContext *is)
                                         ifile->time_base);
     }
 
-    ifile->loop--;
+    if (ifile->loop > 0)
+        ifile->loop--;
 
     return ret;
 }
@@ -3726,7 +3726,7 @@ static int process_input(int file_index)
         ifile->eagain = 1;
         return ret;
     }
-    if ((ret < 0) && (ifile->loop > 1)) {
+    if (ret < 0 && ifile->loop) {
         if ((ret = seek_to_start(ifile, is)) < 0)
             return ret;
         ret = get_input_packet(ifile, &pkt);

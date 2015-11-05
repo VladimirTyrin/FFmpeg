@@ -75,7 +75,6 @@ void avcodec_register_all(void)
 
     /* hardware accelerators */
     REGISTER_HWACCEL(H263_VAAPI,        h263_vaapi);
-    REGISTER_HWACCEL(H263_VDPAU,        h263_vdpau);
     REGISTER_HWACCEL(H263_VIDEOTOOLBOX, h263_videotoolbox);
     REGISTER_HWACCEL(H264_D3D11VA,      h264_d3d11va);
     REGISTER_HWACCEL(H264_DXVA2,        h264_dxva2);
@@ -400,6 +399,7 @@ void avcodec_register_all(void)
     REGISTER_DECODER(GSM_MS,            gsm_ms);
     REGISTER_DECODER(IAC,               iac);
     REGISTER_DECODER(IMC,               imc);
+    REGISTER_DECODER(INTERPLAY_ACM,     interplay_acm);
     REGISTER_DECODER(MACE3,             mace3);
     REGISTER_DECODER(MACE6,             mace6);
     REGISTER_DECODER(METASOUND,         metasound);
@@ -488,6 +488,7 @@ void avcodec_register_all(void)
     REGISTER_DECODER(ADPCM_4XM,         adpcm_4xm);
     REGISTER_ENCDEC (ADPCM_ADX,         adpcm_adx);
     REGISTER_DECODER(ADPCM_AFC,         adpcm_afc);
+    REGISTER_DECODER(ADPCM_AICA,        adpcm_aica);
     REGISTER_DECODER(ADPCM_CT,          adpcm_ct);
     REGISTER_DECODER(ADPCM_DTK,         adpcm_dtk);
     REGISTER_DECODER(ADPCM_EA,          adpcm_ea);

@@ -63,6 +63,7 @@ void av_register_all(void)
     REGISTER_DEMUXER (AA,               aa);
     REGISTER_DEMUXER (AAC,              aac);
     REGISTER_MUXDEMUX(AC3,              ac3);
+    REGISTER_DEMUXER (ACM,              acm);
     REGISTER_DEMUXER (ACT,              act);
     REGISTER_DEMUXER (ADF,              adf);
     REGISTER_DEMUXER (ADP,              adp);
@@ -109,6 +110,7 @@ void av_register_all(void)
     REGISTER_MUXER   (DASH,             dash);
     REGISTER_MUXDEMUX(DATA,             data);
     REGISTER_MUXDEMUX(DAUD,             daud);
+    REGISTER_DEMUXER (DCSTR,            dcstr);
     REGISTER_DEMUXER (DFA,              dfa);
     REGISTER_MUXDEMUX(DIRAC,            dirac);
     REGISTER_MUXDEMUX(DNXHD,            dnxhd);
@@ -303,6 +305,7 @@ void av_register_all(void)
     REGISTER_MUXER   (TG2,              tg2);
     REGISTER_MUXER   (TGP,              tgp);
     REGISTER_DEMUXER (THP,              thp);
+    REGISTER_DEMUXER (THREEDOSTR,       threedostr);
     REGISTER_DEMUXER (TIERTEXSEQ,       tiertexseq);
     REGISTER_MUXER   (MKVTIMESTAMP_V2,  mkvtimestamp_v2);
     REGISTER_DEMUXER (TMV,              tmv);
