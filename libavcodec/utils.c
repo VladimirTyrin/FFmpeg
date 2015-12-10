@@ -41,6 +41,7 @@
 #include "libavutil/imgutils.h"
 #include "libavutil/samplefmt.h"
 #include "libavutil/dict.h"
+#include "libavutil/thread.h"
 #include "avcodec.h"
 #include "libavutil/opt.h"
 #include "me_cmp.h"
@@ -57,14 +58,6 @@
 #include <float.h>
 #if CONFIG_ICONV
 # include <iconv.h>
-#endif
-
-#if HAVE_PTHREADS
-#include <pthread.h>
-#elif HAVE_W32THREADS
-#include "compat/w32pthreads.h"
-#elif HAVE_OS2THREADS
-#include "compat/os2threads.h"
 #endif
 
 #include "libavutil/ffversion.h"
@@ -888,8 +881,10 @@ end:
 int ff_get_buffer(AVCodecContext *avctx, AVFrame *frame, int flags)
 {
     int ret = get_buffer_internal(avctx, frame, flags);
-    if (ret < 0)
+    if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
+        frame->width = frame->height = 0;
+    }
     return ret;
 }
 
@@ -1139,7 +1134,7 @@ static int64_t get_bit_rate(AVCodecContext *ctx)
         break;
     case AVMEDIA_TYPE_AUDIO:
         bits_per_sample = av_get_bits_per_sample(ctx->codec_id);
-        bit_rate = bits_per_sample ? ctx->sample_rate * ctx->channels * bits_per_sample : ctx->bit_rate;
+        bit_rate = bits_per_sample ? ctx->sample_rate * (int64_t)ctx->channels * bits_per_sample : ctx->bit_rate;
         break;
     default:
         bit_rate = 0;
@@ -2760,8 +2755,8 @@ void avcodec_string(char *buf, int buf_size, AVCodecContext *enc, int encode)
 
             if (enc->sample_aspect_ratio.num) {
                 av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-                          enc->width * enc->sample_aspect_ratio.num,
-                          enc->height * enc->sample_aspect_ratio.den,
+                          enc->width * (int64_t)enc->sample_aspect_ratio.num,
+                          enc->height * (int64_t)enc->sample_aspect_ratio.den,
                           1024 * 1024);
                 snprintf(buf + strlen(buf), buf_size - strlen(buf),
                          " [SAR %d:%d DAR %d:%d]",
